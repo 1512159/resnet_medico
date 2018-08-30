@@ -24,6 +24,7 @@ import tensorflow as tf
 from datasets import dataset_factory
 from nets import nets_factory
 from preprocessing import preprocessing_factory
+from eval_reporter import EvalReporter
 
 slim = tf.contrib.slim
 
@@ -82,110 +83,166 @@ tf.app.flags.DEFINE_integer(
 FLAGS = tf.app.flags.FLAGS
 
 
+def _create_local(name, shape, collections=None, validate_shape=True,
+                  dtype=tf.float32):
+    """Creates a new local variable.
+    Args:
+      name: The name of the new or existing variable.
+      shape: Shape of the new or existing variable.
+      collections: A list of collection names to which the Variable will be added.
+      validate_shape: Whether to validate the shape of the variable.
+      dtype: Data type of the variables.
+    Returns:
+      The created variable.
+    """
+    # Make sure local variables are added to tf.GraphKeys.LOCAL_VARIABLES
+    collections = list(collections or [])
+    collections += [tf.GraphKeys.LOCAL_VARIABLES]
+    return tf.Variable(
+        initial_value=tf.zeros(shape, dtype=dtype),
+        name=name,
+        trainable=False,
+        collections=collections,
+        validate_shape=validate_shape)
+
+
+# Function to aggregate confusion
+def _get_streaming_metrics(prediction, label, num_classes):
+    with tf.name_scope("eval"):
+        batch_confusion = tf.confusion_matrix(label, prediction,
+                                              num_classes=num_classes,
+                                              name='batch_confusion')
+
+        confusion = _create_local('confusion_matrix',
+                                  shape=[num_classes, num_classes],
+                                  dtype=tf.int32)
+        # Create the update op for doing a "+=" accumulation on the batch
+        confusion_update = confusion.assign(confusion + batch_confusion)
+        # Cast counts to float so tf.summary.image renormalizes to [0,255]
+        confusion_image = tf.reshape(tf.cast(confusion, tf.float32),
+                                     [1, num_classes, num_classes, 1])
+
+    return confusion, confusion_update
+
+
 def main(_):
-  if not FLAGS.dataset_dir:
-    raise ValueError('You must supply the dataset directory with --dataset_dir')
+    if not FLAGS.dataset_dir:
+        raise ValueError(
+            'You must supply the dataset directory with --dataset_dir')
 
-  tf.logging.set_verbosity(tf.logging.INFO)
-  with tf.Graph().as_default():
-    tf_global_step = slim.get_or_create_global_step()
+    tf.logging.set_verbosity(tf.logging.INFO)
+    with tf.Graph().as_default():
+        tf_global_step = slim.get_or_create_global_step()
 
-    ######################
-    # Select the dataset #
-    ######################
-    dataset = dataset_factory.get_dataset(
-        FLAGS.dataset_name, FLAGS.dataset_split_name, FLAGS.dataset_dir)
+        ######################
+        # Select the dataset #
+        ######################
+        dataset = dataset_factory.get_dataset(
+            FLAGS.dataset_name, FLAGS.dataset_split_name, FLAGS.dataset_dir)
 
-    ####################
-    # Select the model #
-    ####################
-    network_fn = nets_factory.get_network_fn(
-        FLAGS.model_name,
-        num_classes=(dataset.num_classes - FLAGS.labels_offset),
-        is_training=False)
+        ####################
+        # Select the model #
+        ####################
+        network_fn = nets_factory.get_network_fn(
+            FLAGS.model_name,
+            num_classes=(dataset.num_classes - FLAGS.labels_offset),
+            is_training=False)
 
-    ##############################################################
-    # Create a dataset provider that loads data from the dataset #
-    ##############################################################
-    provider = slim.dataset_data_provider.DatasetDataProvider(
-        dataset,
-        shuffle=False,
-        common_queue_capacity=2 * FLAGS.batch_size,
-        common_queue_min=FLAGS.batch_size)
-    [image, label] = provider.get(['image', 'label'])
-    label -= FLAGS.labels_offset
+        ##############################################################
+        # Create a dataset provider that loads data from the dataset #
+        ##############################################################
+        provider = slim.dataset_data_provider.DatasetDataProvider(
+            dataset,
+            shuffle=False,
+            common_queue_capacity=2 * FLAGS.batch_size,
+            common_queue_min=FLAGS.batch_size)
+        [image, label] = provider.get(['image', 'label'])
+        label -= FLAGS.labels_offset
+        #####################################
+        # Select the preprocessing function #
+        #####################################
+        preprocessing_name = FLAGS.preprocessing_name or FLAGS.model_name
+        image_preprocessing_fn = preprocessing_factory.get_preprocessing(
+            preprocessing_name,
+            is_training=False)
 
-    #####################################
-    # Select the preprocessing function #
-    #####################################
-    preprocessing_name = FLAGS.preprocessing_name or FLAGS.model_name
-    image_preprocessing_fn = preprocessing_factory.get_preprocessing(
-        preprocessing_name,
-        is_training=False)
+        eval_image_size = FLAGS.eval_image_size or network_fn.default_image_size
 
-    eval_image_size = FLAGS.eval_image_size or network_fn.default_image_size
+        image = image_preprocessing_fn(image, eval_image_size, eval_image_size)
 
-    image = image_preprocessing_fn(image, eval_image_size, eval_image_size)
+        images, labels = tf.train.batch(
+            [image, label],
+            batch_size=FLAGS.batch_size,
+            num_threads=FLAGS.num_preprocessing_threads,
+            capacity=5 * FLAGS.batch_size)
 
-    images, labels = tf.train.batch(
-        [image, label],
-        batch_size=FLAGS.batch_size,
-        num_threads=FLAGS.num_preprocessing_threads,
-        capacity=5 * FLAGS.batch_size)
+        ####################
+        # Define the model #
+        ####################
+        logits, _ = network_fn(images)
 
-    ####################
-    # Define the model #
-    ####################
-    logits, _ = network_fn(images)
+        if FLAGS.moving_average_decay:
+            variable_averages = tf.train.ExponentialMovingAverage(
+                FLAGS.moving_average_decay, tf_global_step)
+            variables_to_restore = variable_averages.variables_to_restore(
+                slim.get_model_variables())
+            variables_to_restore[tf_global_step.op.name] = tf_global_step
+        else:
+            variables_to_restore = slim.get_variables_to_restore()
 
-    if FLAGS.moving_average_decay:
-      variable_averages = tf.train.ExponentialMovingAverage(
-          FLAGS.moving_average_decay, tf_global_step)
-      variables_to_restore = variable_averages.variables_to_restore(
-          slim.get_model_variables())
-      variables_to_restore[tf_global_step.op.name] = tf_global_step
-    else:
-      variables_to_restore = slim.get_variables_to_restore()
+        predictions = tf.argmax(logits, 1)
+        labels = tf.squeeze(labels)
 
-    predictions = tf.argmax(logits, 1)
-    labels = tf.squeeze(labels)
+        # Define the metrics:
+        names_to_values, names_to_updates = slim.metrics.aggregate_metric_map({
+            'Accuracy': slim.metrics.streaming_accuracy(predictions, labels),
+            'Recall_5': slim.metrics.streaming_recall_at_k(
+                logits, labels, 8),
+            'Confusion_matrix': _get_streaming_metrics(labels, predictions,
+                                                       dataset.num_classes - FLAGS.labels_offset)
+        })
 
-    # Define the metrics:
-    names_to_values, names_to_updates = slim.metrics.aggregate_metric_map({
-        'Accuracy': slim.metrics.streaming_accuracy(predictions, labels),
-        'Recall_5': slim.metrics.streaming_recall_at_k(
-            logits, labels, 5),
-    })
+        # Print the summaries to screen.
+        for name, value in names_to_values.items():
+            if name == 'Confusion_matrix':
+                continue
+            summary_name = 'eval/%s' % name
+            op = tf.summary.scalar(summary_name, value, collections=[])
+            op = tf.Print(op, [value], summary_name)
+            tf.add_to_collection(tf.GraphKeys.SUMMARIES, op)
 
-    # Print the summaries to screen.
-    for name, value in names_to_values.items():
-      summary_name = 'eval/%s' % name
-      op = tf.summary.scalar(summary_name, value, collections=[])
-      op = tf.Print(op, [value], summary_name)
-      tf.add_to_collection(tf.GraphKeys.SUMMARIES, op)
+        # TODO(sguada) use num_epochs=1
+        if FLAGS.max_num_batches:
+            num_batches = FLAGS.max_num_batches
+        else:
+            # This ensures that we make a single pass over all of the data.
+            num_batches = math.ceil(
+                dataset.num_samples / float(FLAGS.batch_size))
 
-    # TODO(sguada) use num_epochs=1
-    if FLAGS.max_num_batches:
-      num_batches = FLAGS.max_num_batches
-    else:
-      # This ensures that we make a single pass over all of the data.
-      num_batches = math.ceil(dataset.num_samples / float(FLAGS.batch_size))
+        if tf.gfile.IsDirectory(FLAGS.checkpoint_path):
+            checkpoint_path = tf.train.latest_checkpoint(FLAGS.checkpoint_path)
+        else:
+            checkpoint_path = FLAGS.checkpoint_path
 
-    if tf.gfile.IsDirectory(FLAGS.checkpoint_path):
-      checkpoint_path = tf.train.latest_checkpoint(FLAGS.checkpoint_path)
-    else:
-      checkpoint_path = FLAGS.checkpoint_path
+        tf.logging.info('Evaluating %s' % checkpoint_path)
 
-    tf.logging.info('Evaluating %s' % checkpoint_path)
+        reporter = EvalReporter(images, predictions, labels)
+        # + [tf.Print(labels, [labels], message="Labels", summarize=100)] + [tf.Print(predictions, [predictions], message="Predictions", summarize=100)]
+        eval_ops = [reporter.get_op()] + list(names_to_updates.values())
 
-    slim.evaluation.evaluate_once(
-        master=FLAGS.master,
-        checkpoint_path=checkpoint_path,
-        logdir=FLAGS.eval_dir,
-        num_evals=num_batches,
-        eval_op=list(names_to_updates.values()),
-        variables_to_restore=variables_to_restore)
+        [confusion_matrix] = slim.evaluation.evaluate_once(
+            master=FLAGS.master,
+            checkpoint_path=checkpoint_path,
+            logdir=FLAGS.eval_dir,
+            num_evals=num_batches,
+            eval_op=eval_ops,  # list(names_to_updates.values()),
+            final_op=[names_to_updates['Confusion_matrix']],
+            variables_to_restore=variables_to_restore)
+
+        print(confusion_matrix)
+
+        reporter.write_html_file("eval.html")
 
 
 if __name__ == '__main__':
-  tf.app.run()
+    tf.app.run()

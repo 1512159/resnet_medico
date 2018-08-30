@@ -12,10 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-r"""Downloads and converts Flowers data to TFRecords of TF-Example protos.
+r"""Downloads and converts Medico data to TFRecords of TF-Example protos.
 
-This module downloads the Flowers data, uncompresses it, reads the files
-that make up the Flowers data and creates two TFRecord datasets: one for train
+This module downloads the Medico data, uncompresses it, reads the files
+that make up the Medico data and creates two TFRecord datasets: one for train
 and one for test. Each TFRecord dataset is comprised of a set of TF-Example
 protocol buffers, each of which contain a single image and label.
 
@@ -40,7 +40,7 @@ from datasets import dataset_utils
 _DATA_URL = ''
 
 # The number of images in the validation set.
-_NUM_VALIDATION = 350
+_NUM_VALIDATION = 400
 
 # Seed for repeatability.
 _RANDOM_SEED = 0
@@ -48,7 +48,12 @@ _RANDOM_SEED = 0
 # The number of shards per dataset split.
 _NUM_SHARDS = 5
 
-
+_CLASS_NAMES = [
+  'esophagitis',
+  'normal-cecum',
+  'normal-pylorus',
+  'ulcerative-colitis'
+]
 class ImageReader(object):
   """Helper class that provides TensorFlow image coding utilities."""
 
@@ -83,7 +88,7 @@ def _get_filenames_and_classes(dataset_dir):
   medico_root = dataset_dir
   directories = []
   class_names = []
-  for filename in os.listdir(medico_root):
+  for filename in _CLASS_NAMES:
     path = os.path.join(medico_root, filename)
     if os.path.isdir(path):
       directories.append(path)
@@ -99,7 +104,7 @@ def _get_filenames_and_classes(dataset_dir):
 
 
 def _get_dataset_filename(dataset_dir, split_name, shard_id):
-  output_filename = 'flowers_%s_%05d-of-%05d.tfrecord' % (
+  output_filename = 'medico_%s_%05d-of-%05d.tfrecord' % (
       split_name, shard_id, _NUM_SHARDS)
   return os.path.join(dataset_dir, output_filename)
 
@@ -160,7 +165,7 @@ def _clean_up_temporary_files(dataset_dir):
   filepath = os.path.join(dataset_dir, filename)
   tf.gfile.Remove(filepath)
 
-  tmp_dir = os.path.join(dataset_dir, 'flower_photos')
+  tmp_dir = os.path.join(dataset_dir)
   tf.gfile.DeleteRecursively(tmp_dir)
 
 
@@ -189,7 +194,7 @@ def run(dataset_dir):
     return
 
   # dataset_utils.download_and_uncompress_tarball(_DATA_URL, dataset_dir)
-  photo_filenames, class_names = _get_filenames_and_classes('/Users/hoangtrunghieu/Projects/Medico_2018/Medico_2018_development_set')
+  photo_filenames, class_names = _get_filenames_and_classes('/home/hoangtrunghieu/Medico2018/imdb/kvasir-dataset-v2')
   class_names_to_ids = dict(zip(class_names, range(len(class_names))))
 
   # # Divide into train and test:
@@ -205,8 +210,8 @@ def run(dataset_dir):
                    dataset_dir)
 
   # # Finally, write the labels file:
-  # labels_to_class_names = dict(zip(range(len(class_names)), class_names))
-  # dataset_utils.write_label_file(labels_to_class_names, dataset_dir)
+  labels_to_class_names = dict(zip(range(len(class_names)), class_names))
+  dataset_utils.write_label_file(labels_to_class_names, dataset_dir)
 
   # _clean_up_temporary_files(dataset_dir)
   print('\nFinished converting the Medico dataset!')

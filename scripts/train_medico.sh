@@ -25,26 +25,26 @@
 set -e
 
 # Where the checkpoint and logs will be saved to.
-TRAIN_DIR=/tmp/cifarnet-model
+TRAIN_DIR=medico-model-kvasir-v2
 
 # Where the dataset is saved to.
-DATASET_DIR=/tmp/medico
+DATASET_DIR=dataset-kvasir-v2
 
 # Download the dataset
 python2 download_and_convert_data.py \
   --dataset_name=medico \
   --dataset_dir=${DATASET_DIR}
 
-# Run training.
+# # Run training.
 # python2 train_image_classifier.py \
 #   --train_dir=${TRAIN_DIR} \
-#   --dataset_name=cifar10 \
+#   --dataset_name=medico \
 #   --dataset_split_name=train \
 #   --dataset_dir=${DATASET_DIR} \
-#   --model_name=cifarnet \
-#   --preprocessing_name=cifarnet \
+#   --model_name=resnet_v2_50 \
+#   --preprocessing_name=medico_preprocessing \
 #   --max_number_of_steps=100000 \
-#   --batch_size=128 \
+#   --batch_size=64 \
 #   --save_interval_secs=120 \
 #   --save_summaries_secs=120 \
 #   --log_every_n_steps=100 \
@@ -55,10 +55,10 @@ python2 download_and_convert_data.py \
 #   --weight_decay=0.004
 
 # # Run evaluation.
-# python eval_image_classifier.py \
-#   --checkpoint_path=${TRAIN_DIR} \
-#   --eval_dir=${TRAIN_DIR} \
-#   --dataset_name=cifar10 \
-#   --dataset_split_name=test \
-#   --dataset_dir=${DATASET_DIR} \
-#   --model_name=cifarnet
+python2 eval_image_classifier.py \
+  --checkpoint_path=${TRAIN_DIR} \
+  --eval_dir=${TRAIN_DIR} \
+  --dataset_name=medico \
+  --dataset_split_name=validation \
+  --dataset_dir=${DATASET_DIR} \
+  --model_name=resnet_v2_50
