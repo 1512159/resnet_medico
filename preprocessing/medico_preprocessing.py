@@ -83,7 +83,6 @@ def _crop(image, offset_height, offset_width, crop_height, crop_width):
     image = tf.slice(image, offsets, cropped_shape)
   return tf.reshape(image, cropped_shape)
 
-
 def _random_crop(image_list, crop_height, crop_width):
   """Crops the given list of images.
 

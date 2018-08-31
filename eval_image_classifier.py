@@ -29,7 +29,7 @@ from eval_reporter import EvalReporter
 slim = tf.contrib.slim
 
 tf.app.flags.DEFINE_integer(
-    'batch_size', 100, 'The number of samples in each batch.')
+    'batch_size', 400, 'The number of samples in each batch.')
 
 tf.app.flags.DEFINE_integer(
     'max_num_batches', None,
@@ -112,12 +112,12 @@ def _get_streaming_metrics(prediction, label, num_classes):
         batch_confusion = tf.confusion_matrix(label, prediction,
                                               num_classes=num_classes,
                                               name='batch_confusion')
-
+        
         confusion = _create_local('confusion_matrix',
                                   shape=[num_classes, num_classes],
                                   dtype=tf.int32)
         # Create the update op for doing a "+=" accumulation on the batch
-        confusion_update = confusion.assign(confusion + batch_confusion)
+        confusion_update = confusion.assign(batch_confusion)
         # Cast counts to float so tf.summary.image renormalizes to [0,255]
         confusion_image = tf.reshape(tf.cast(confusion, tf.float32),
                                      [1, num_classes, num_classes, 1])
@@ -210,6 +210,9 @@ def main(_):
             op = tf.summary.scalar(summary_name, value, collections=[])
             op = tf.Print(op, [value], summary_name)
             tf.add_to_collection(tf.GraphKeys.SUMMARIES, op)
+        
+        # c_name, c_value = names_to_values['Confusion_matrix']
+
 
         # TODO(sguada) use num_epochs=1
         if FLAGS.max_num_batches:
@@ -218,7 +221,7 @@ def main(_):
             # This ensures that we make a single pass over all of the data.
             num_batches = math.ceil(
                 dataset.num_samples / float(FLAGS.batch_size))
-
+        print(dataset.num_samples)
         if tf.gfile.IsDirectory(FLAGS.checkpoint_path):
             checkpoint_path = tf.train.latest_checkpoint(FLAGS.checkpoint_path)
         else:
@@ -226,7 +229,7 @@ def main(_):
 
         tf.logging.info('Evaluating %s' % checkpoint_path)
 
-        reporter = EvalReporter(images, predictions, labels)
+        reporter = EvalReporter(images, predictions, labels) 
         # + [tf.Print(labels, [labels], message="Labels", summarize=100)] + [tf.Print(predictions, [predictions], message="Predictions", summarize=100)]
         eval_ops = [reporter.get_op()] + list(names_to_updates.values())
 
@@ -235,7 +238,7 @@ def main(_):
             checkpoint_path=checkpoint_path,
             logdir=FLAGS.eval_dir,
             num_evals=num_batches,
-            eval_op=eval_ops,  # list(names_to_updates.values()),
+            eval_op=eval_ops + [names_to_updates['Confusion_matrix']],  # list(names_to_updates.values()),
             final_op=[names_to_updates['Confusion_matrix']],
             variables_to_restore=variables_to_restore)
 

@@ -23,13 +23,15 @@ from datasets import flowers
 from datasets import imagenet
 from datasets import mnist
 from datasets import medico
+from datasets import medico_test
 
 datasets_map = {
     'cifar10': cifar10,
     'flowers': flowers,
     'imagenet': imagenet,
     'mnist': mnist,
-    'medico': medico
+    'medico': medico,
+    'medico_test': medico_test
 }
 
 

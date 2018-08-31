@@ -26,16 +26,23 @@ set -e
 
 # Where the checkpoint and logs will be saved to.
 TRAIN_DIR=medico-model-kvasir-v2
-
 # Where the dataset is saved to.
 DATASET_DIR=dataset-kvasir-v2
+# Where the test dataset is saved to
+TESTSET_DIR=medico-test-dataset 
 
-# Download the dataset
-python2 download_and_convert_data.py \
-  --dataset_name=medico \
-  --dataset_dir=${DATASET_DIR}
+# Test dataset
+# python2 download_and_convert_data.py \
+#   --dataset_name=medico_test \
+#   --dataset_dir=${TESTSET_DIR}
 
-# # Run training.
+
+# Train_val dataset
+# python2 download_and_convert_data.py \
+#   --dataset_name=medico \
+#   --dataset_dir=${DATASET_DIR}
+
+# Run training.
 # python2 train_image_classifier.py \
 #   --train_dir=${TRAIN_DIR} \
 #   --dataset_name=medico \
@@ -49,16 +56,26 @@ python2 download_and_convert_data.py \
 #   --save_summaries_secs=120 \
 #   --log_every_n_steps=100 \
 #   --optimizer=sgd \
-#   --learning_rate=0.1 \
+#   --learning_rate=0.00001 \
 #   --learning_rate_decay_factor=0.1 \
 #   --num_epochs_per_decay=200 \
 #   --weight_decay=0.004
 
-# # Run evaluation.
-python2 eval_image_classifier.py \
+# Run evaluation.
+# python2 eval_image_classifier.py \
+#   --checkpoint_path=${TRAIN_DIR} \
+#   --eval_dir=${TRAIN_DIR} \
+#   --dataset_name=medico \
+#   --dataset_split_name=validation \
+#   --dataset_dir=${DATASET_DIR} \
+#   --model_name=resnet_v2_50 \
+#   --preprocessing_name=medico_preprocessing
+
+python2 demo_image_classifier.py \
   --checkpoint_path=${TRAIN_DIR} \
   --eval_dir=${TRAIN_DIR} \
   --dataset_name=medico \
   --dataset_split_name=validation \
   --dataset_dir=${DATASET_DIR} \
-  --model_name=resnet_v2_50
+  --model_name=resnet_v2_50 \
+  --preprocessing_name=medico_preprocessing

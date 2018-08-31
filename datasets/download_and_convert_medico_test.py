@@ -35,13 +35,6 @@ import sys
 import tensorflow as tf
 
 from datasets import dataset_utils
-
-# The URL where the Flowers data can be downloaded.
-_DATA_URL = ''
-
-# The number of images in the validation set.
-_SPLIT_VALIDATION = 1
-
 # Seed for repeatability.
 _RANDOM_SEED = 0
 
@@ -121,7 +114,7 @@ def _convert_dataset(split_name, filenames, class_names_to_ids, dataset_dir):
       (integers).
     dataset_dir: The directory where the converted datasets are stored.
   """
-  assert split_name in ['train', 'validation']
+  assert split_name in ['test']
 
   num_per_shard = int(math.ceil(len(filenames) / float(_NUM_SHARDS)))
 
@@ -172,7 +165,7 @@ def _clean_up_temporary_files(dataset_dir):
 
 
 def _dataset_exists(dataset_dir):
-  for split_name in ['train', 'validation']:
+  for split_name in ['test']:
     for shard_id in range(_NUM_SHARDS):
       output_filename = _get_dataset_filename(
           dataset_dir, split_name, shard_id)
@@ -202,16 +195,11 @@ def run(dataset_dir):
   # # Divide into train and test:
   random.seed(_RANDOM_SEED)
   random.shuffle(photo_filenames)
-  _NUM_VALIDATION = int(len(photo_filenames) * _SPLIT_VALIDATION)
-  training_filenames = photo_filenames[_NUM_VALIDATION:]
-  validation_filenames = photo_filenames[:_NUM_VALIDATION]
+  test_filenames = photo_filenames
 
   # # First, convert the training and validation sets.
-  _convert_dataset('train', training_filenames, class_names_to_ids,
+  _convert_dataset('test', test_filenames, class_names_to_ids,
                    dataset_dir)
-  _convert_dataset('validation', validation_filenames, class_names_to_ids,
-                   dataset_dir)
-
   # # Finally, write the labels file:
   labels_to_class_names = dict(zip(range(len(class_names)), class_names))
   dataset_utils.write_label_file(labels_to_class_names, dataset_dir)

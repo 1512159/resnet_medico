@@ -31,7 +31,7 @@ slim = tf.contrib.slim
 
 _FILE_PATTERN = 'medico_%s_*.tfrecord'
 
-SPLITS_TO_SIZES = {'train': 3600, 'validation': 400, 'test': 2338}
+SPLITS_TO_SIZES = {'test': 2338}
 
 _NUM_CLASSES = 8
 
