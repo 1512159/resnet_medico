@@ -40,21 +40,30 @@ from datasets import dataset_utils
 _DATA_URL = ''
 
 # The number of images in the validation set.
-_SPLIT_VALIDATION = 1
+_SPLIT_VALIDATION = 0
 
 # Seed for repeatability.
 _RANDOM_SEED = 0
 
 # The number of shards per dataset split.
-_NUM_SHARDS = 5
+_NUM_SHARDS = 8
 
 _CLASS_NAMES = [
+  'colon-clear',
   'esophagitis',
   'normal-cecum',
   'normal-pylorus',
+  'retroflex-rectum',
+  'retroflex-stomach',
+  'stool-plenty',
   'ulcerative-colitis',
-  # 'stool-plenty',
-  # 'colon-clear',
+  'blurry-nothing',
+  'dyed-lifted-polyps',
+  'dyed-resection-margins',
+  'instruments',
+  'normal-z-line',
+  'polyps',
+  'stool-inclusions'
 ]
 class ImageReader(object):
   """Helper class that provides TensorFlow image coding utilities."""
@@ -196,7 +205,7 @@ def run(dataset_dir):
     return
 
   # dataset_utils.download_and_uncompress_tarball(_DATA_URL, dataset_dir)
-  photo_filenames, class_names = _get_filenames_and_classes('/home/hoangtrunghieu/Medico2018/imdb/Medico_2018_test_set_cls')
+  photo_filenames, class_names = _get_filenames_and_classes('/home/hoangtrunghieu/Medico2018/imdb/Medico_2018_development_set')
   class_names_to_ids = dict(zip(class_names, range(len(class_names))))
 
   # # Divide into train and test:

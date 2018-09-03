@@ -29,7 +29,7 @@ from eval_reporter import EvalReporter
 slim = tf.contrib.slim
 
 tf.app.flags.DEFINE_integer(
-    'batch_size', 400, 'The number of samples in each batch.')
+    'batch_size', 100, 'The number of samples in each batch.')
 
 tf.app.flags.DEFINE_integer(
     'max_num_batches', None,
@@ -116,13 +116,25 @@ def _get_streaming_metrics(prediction, label, num_classes):
         confusion = _create_local('confusion_matrix',
                                   shape=[num_classes, num_classes],
                                   dtype=tf.int32)
+        
         # Create the update op for doing a "+=" accumulation on the batch
-        confusion_update = confusion.assign(batch_confusion)
+        confusion_update = confusion.assign(tf.add(batch_confusion,confusion))
         # Cast counts to float so tf.summary.image renormalizes to [0,255]
         confusion_image = tf.reshape(tf.cast(confusion, tf.float32),
                                      [1, num_classes, num_classes, 1])
 
     return confusion, confusion_update
+
+def _get_pred_result(prediction):
+    with tf.name_scope("eval"):
+        predict = _create_local('my_predict',
+                                  shape=[100],
+                                  dtype=tf.int64)
+        # Create the update op for doing a "+=" accumulation on the batch
+        predict_update = predict.assign(prediction)
+        # predict_update = predict.assign(tf.concat(0,[v1, v2]))
+
+    return predict, predict_update
 
 
 def main(_):
@@ -199,20 +211,19 @@ def main(_):
             'Recall_5': slim.metrics.streaming_recall_at_k(
                 logits, labels, 8),
             'Confusion_matrix': _get_streaming_metrics(labels, predictions,
-                                                       dataset.num_classes - FLAGS.labels_offset)
+                                                       dataset.num_classes - FLAGS.labels_offset),
+            'Predictions': _get_pred_result(predictions)
         })
 
         # Print the summaries to screen.
         for name, value in names_to_values.items():
-            if name == 'Confusion_matrix':
+            if name in ['Confusion_matrix', 'Predictions'] :
                 continue
             summary_name = 'eval/%s' % name
             op = tf.summary.scalar(summary_name, value, collections=[])
             op = tf.Print(op, [value], summary_name)
             tf.add_to_collection(tf.GraphKeys.SUMMARIES, op)
         
-        # c_name, c_value = names_to_values['Confusion_matrix']
-
 
         # TODO(sguada) use num_epochs=1
         if FLAGS.max_num_batches:
@@ -238,12 +249,12 @@ def main(_):
             checkpoint_path=checkpoint_path,
             logdir=FLAGS.eval_dir,
             num_evals=num_batches,
-            eval_op=eval_ops + [names_to_updates['Confusion_matrix']],  # list(names_to_updates.values()),
-            final_op=[names_to_updates['Confusion_matrix']],
+            eval_op=eval_ops,  # list(names_to_updates.values()),
+            final_op=[names_to_values['Confusion_matrix']],
             variables_to_restore=variables_to_restore)
 
-        print(confusion_matrix)
-
+        # print(confusion_matrix)
+        # print(predicts)
         reporter.write_html_file("eval.html")
 
 

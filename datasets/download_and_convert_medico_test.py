@@ -36,18 +36,26 @@ import tensorflow as tf
 
 from datasets import dataset_utils
 # Seed for repeatability.
-_RANDOM_SEED = 0
 
 # The number of shards per dataset split.
-_NUM_SHARDS = 5
+_NUM_SHARDS = 10
 
 _CLASS_NAMES = [
+  'colon-clear',
   'esophagitis',
   'normal-cecum',
   'normal-pylorus',
+  'retroflex-rectum',
+  'retroflex-stomach',
+  'stool-plenty',
   'ulcerative-colitis',
-  # 'stool-plenty',
-  # 'colon-clear',
+  'blurry-nothing',
+  'dyed-lifted-polyps',
+  'dyed-resection-margins',
+  'instruments',
+  'normal-z-line',
+  'polyps',
+  'stool-inclusions'
 ]
 class ImageReader(object):
   """Helper class that provides TensorFlow image coding utilities."""
@@ -141,9 +149,9 @@ def _convert_dataset(split_name, filenames, class_names_to_ids, dataset_dir):
 
             class_name = os.path.basename(os.path.dirname(filenames[i]))
             class_id = class_names_to_ids[class_name]
-
+            img_id = os.path.splitext(os.path.basename(filenames[i]))[0]
             example = dataset_utils.image_to_tfexample(
-                image_data, b'jpg', height, width, class_id)
+                image_data, b'jpg', height, width, class_id, img_id)
             tfrecord_writer.write(example.SerializeToString())
 
   sys.stdout.write('\n')
@@ -183,7 +191,7 @@ def run(dataset_dir):
   print(dataset_dir)
   if not tf.gfile.Exists(dataset_dir):
     tf.gfile.MakeDirs(dataset_dir)
-
+  print('Medico challenge - test dataset')
   if _dataset_exists(dataset_dir):
     print('Dataset files already exist. Exiting without re-creating them.')
     return
@@ -192,11 +200,10 @@ def run(dataset_dir):
   photo_filenames, class_names = _get_filenames_and_classes('/home/hoangtrunghieu/Medico2018/imdb/Medico_2018_test_set_cls')
   class_names_to_ids = dict(zip(class_names, range(len(class_names))))
 
-  # # Divide into train and test:
-  random.seed(_RANDOM_SEED)
-  random.shuffle(photo_filenames)
   test_filenames = photo_filenames
-
+  fo = open(os.path.join(dataset_dir, "test_images.csv"),"w")
+  for file_name in test_filenames:
+    fo.write(file_name+'\n')
   # # First, convert the training and validation sets.
   _convert_dataset('test', test_filenames, class_names_to_ids,
                    dataset_dir)

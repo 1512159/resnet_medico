@@ -31,9 +31,10 @@ slim = tf.contrib.slim
 
 _FILE_PATTERN = 'medico_%s_*.tfrecord'
 
-SPLITS_TO_SIZES = {'test': 2338}
-
-_NUM_CLASSES = 8
+# SPLITS_TO_SIZES = {'test': 2338}
+# SPLITS_TO_SIZES = {'test': 2338}
+SPLITS_TO_SIZES = {'test': 400}
+_NUM_CLASSES = 16
 
 _ITEMS_TO_DESCRIPTIONS = {
     'image': 'A color image of varying size.',

@@ -40,6 +40,8 @@ from datasets import download_and_convert_cifar10
 from datasets import download_and_convert_flowers
 from datasets import download_and_convert_mnist
 from datasets import download_and_convert_medico
+from datasets import download_and_convert_medico_test
+
 FLAGS = tf.app.flags.FLAGS
 
 tf.app.flags.DEFINE_string(
@@ -67,6 +69,8 @@ def main(_):
     download_and_convert_mnist.run(FLAGS.dataset_dir)
   elif FLAGS.dataset_name == 'medico':
     download_and_convert_medico.run(FLAGS.dataset_dir)
+  elif FLAGS.dataset_name == 'medico_test':
+    download_and_convert_medico_test.run(FLAGS.dataset_dir)
   else:
     raise ValueError(
         'dataset_name [%s] was not recognized.' % FLAGS.dataset_name)

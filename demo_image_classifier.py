@@ -1,3 +1,18 @@
+# Copyright 2016 The TensorFlow Authors. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+"""Generic evaluation script that evaluates a model using a given dataset."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -5,16 +20,32 @@ from __future__ import print_function
 
 import math
 import tensorflow as tf
-import cv2
+
 from datasets import dataset_factory
 from nets import nets_factory
 from preprocessing import preprocessing_factory
-import matplotlib
-import numpy as np
-matplotlib.use('Agg')
-from matplotlib import pyplot as plt
+from eval_reporter import EvalReporter
+from pycm import *
+
 slim = tf.contrib.slim
-import glob
+
+CLASSES = [
+    'blurry-nothing',
+    'colon-clear',
+    'dyed-lifted-polyps',
+    'dyed-resection-margins',
+    'esophagitis',
+    'instruments',
+    'normal-cecum',
+    'normal-pylorus',
+    'normal-z-line',
+    'polyps',
+    'retroflex-rectum',
+    'retroflex-stomach',
+    'stool-inclusions',
+    'stool-plenty',
+    'ulcerative-colitis']
+
 tf.app.flags.DEFINE_integer(
     'batch_size', 100, 'The number of samples in each batch.')
 
@@ -69,26 +100,62 @@ tf.app.flags.DEFINE_integer(
 
 FLAGS = tf.app.flags.FLAGS
 
-class ImageReader(object):
-  """Helper class that provides TensorFlow image coding utilities."""
 
-  def __init__(self):
-    # Initializes function that decodes RGB JPEG data.
-    self._decode_jpeg_data = tf.placeholder(dtype=tf.string)
-    self._decode_jpeg = tf.image.decode_jpeg(self._decode_jpeg_data, channels=3)
+def _create_local(name, shape, collections=None, validate_shape=True,
+                  dtype=tf.float32):
+    """Creates a new local variable.
+    Args:
+      name: The name of the new or existing variable.
+      shape: Shape of the new or existing variable.
+      collections: A list of collection names to which the Variable will be added.
+      validate_shape: Whether to validate the shape of the variable.
+      dtype: Data type of the variables.
+    Returns:
+      The created variable.
+    """
+    # Make sure local variables are added to tf.GraphKeys.LOCAL_VARIABLES
+    collections = list(collections or [])
+    collections += [tf.GraphKeys.LOCAL_VARIABLES]
+    return tf.Variable(
+        initial_value=tf.zeros(shape, dtype=dtype),
+        name=name,
+        trainable=False,
+        collections=collections,
+        validate_shape=validate_shape)
 
-  def read_image_dims(self, sess, image_data):
-    image = self.decode_jpeg(sess, image_data)
-    return image.shape[0], image.shape[1]
 
-  def decode_jpeg(self, sess, image_data):
-    image = sess.run(self._decode_jpeg,
-                     feed_dict={self._decode_jpeg_data: image_data})
-    assert len(image.shape) == 3
-    assert image.shape[2] == 3
-    return image
+# Function to aggregate confusion
+def _get_streaming_metrics(prediction, label, num_classes):
+    with tf.name_scope("eval"):
+        batch_confusion = tf.confusion_matrix(label, prediction,
+                                              num_classes=num_classes,
+                                              name='batch_confusion')
+        
+        confusion = _create_local('confusion_matrix',
+                                  shape=[num_classes, num_classes],
+                                  dtype=tf.int32)
+        
+        # Create the update op for doing a "+=" accumulation on the batch
+        confusion_update = confusion.assign(tf.add(batch_confusion,confusion))
+        # Cast counts to float so tf.summary.image renormalizes to [0,255]
+        confusion_image = tf.reshape(tf.cast(confusion, tf.float32),
+                                     [1, num_classes, num_classes, 1])
 
-def main():
+    return confusion, confusion_update
+
+def _get_pred_result(prediction):
+    with tf.name_scope("eval"):
+        predict = _create_local('my_predict',
+                                  shape=[100],
+                                  dtype=tf.int64)
+        # Create the update op for doing a "+=" accumulation on the batch
+        predict_update = predict.assign(prediction)
+        # predict_update = predict.assign(tf.concat(0,[v1, v2]))
+
+    return predict, predict_update
+
+
+def main(_):
     if not FLAGS.dataset_dir:
         raise ValueError(
             'You must supply the dataset directory with --dataset_dir')
@@ -96,13 +163,13 @@ def main():
     tf.logging.set_verbosity(tf.logging.INFO)
     with tf.Graph().as_default():
         tf_global_step = slim.get_or_create_global_step()
+
         ######################
         # Select the dataset #
         ######################
         dataset = dataset_factory.get_dataset(
             FLAGS.dataset_name, FLAGS.dataset_split_name, FLAGS.dataset_dir)
 
-       
         ####################
         # Select the model #
         ####################
@@ -114,36 +181,36 @@ def main():
         ##############################################################
         # Create a dataset provider that loads data from the dataset #
         ##############################################################
-        # provider = slim.dataset_data_provider.DatasetDataProvider(
-        #     dataset,
-        #     shuffle=False,
-        #     common_queue_capacity=2 * FLAGS.batch_size,
-        #     common_queue_min=FLAGS.batch_size)
-        # [image, label] = provider.get(['image', 'label'])
-        # label -= FLAGS.labels_offset
-        
-        #####################################
-        # Load image #
-        #####################################
-        # items = glob.glob('/home/hoangtrunghieu/Medico2018/imdb/Medico_2018_test_set_cls/esophagitis/*.jpg')[:3]
-        file_name = tf.constant('test.jpg')
-        image_data = tf.gfile.FastGFile(file_name, 'rb').read()
-        image = tf.image.decode_jpeg(image_data, channels=3)
+        provider = slim.dataset_data_provider.DatasetDataProvider(
+            dataset,
+            shuffle=False,
+            common_queue_capacity=2 * FLAGS.batch_size,
+            common_queue_min=FLAGS.batch_size)
+        [image, label] = provider.get(['image', 'label'])
+        label -= FLAGS.labels_offset
         #####################################
         # Select the preprocessing function #
         #####################################
         preprocessing_name = FLAGS.preprocessing_name or FLAGS.model_name
-        image_preprocessing_fn = preprocessing_factory.get_preprocessing(preprocessing_name,is_training=False)
-        demo_image_size = FLAGS.eval_image_size or network_fn.default_image_size
-        processed_image = image_preprocessing_fn(image, demo_image_size, demo_image_size)
-        processed_images  = tf.expand_dims(processed_image, 0)
+        image_preprocessing_fn = preprocessing_factory.get_preprocessing(
+            preprocessing_name,
+            is_training=False)
+
+        eval_image_size = FLAGS.eval_image_size or network_fn.default_image_size
+
+        image = image_preprocessing_fn(image, eval_image_size, eval_image_size)
+
+        images, labels = tf.train.batch(
+            [image, label],
+            batch_size=FLAGS.batch_size,
+            num_threads=FLAGS.num_preprocessing_threads,
+            capacity=5 * FLAGS.batch_size)
+
         ####################
         # Define the model #
         ####################
-        logits, _ = network_fn(processed_images)
-        probabilities = tf.nn.softmax(logits)
-        predictions = tf.argmax(logits, 1)
-        
+        logits, _ = network_fn(images)
+
         if FLAGS.moving_average_decay:
             variable_averages = tf.train.ExponentialMovingAverage(
                 FLAGS.moving_average_decay, tf_global_step)
@@ -153,57 +220,79 @@ def main():
         else:
             variables_to_restore = slim.get_variables_to_restore()
 
-       
+        predictions = tf.argmax(logits, 1)
+        labels = tf.squeeze(labels)
 
+        # Define the metrics:
+        names_to_values, names_to_updates = slim.metrics.aggregate_metric_map({
+            'Accuracy': slim.metrics.streaming_accuracy(predictions, labels),
+            'Recall_5': slim.metrics.streaming_recall_at_k(
+                logits, labels, 8),
+            'Confusion_matrix': _get_streaming_metrics(labels, predictions,
+                                                       dataset.num_classes - FLAGS.labels_offset),
+            'Predictions': _get_pred_result(predictions)
+        })
+
+        # Print the summaries to screen.
+        for name, value in names_to_values.items():
+            if name in ['Confusion_matrix', 'Predictions'] :
+                continue
+            summary_name = 'eval/%s' % name
+            op = tf.summary.scalar(summary_name, value, collections=[])
+            op = tf.Print(op, [value], summary_name)
+            tf.add_to_collection(tf.GraphKeys.SUMMARIES, op)
+        
+
+        # TODO(sguada) use num_epochs=1
+        if FLAGS.max_num_batches:
+            num_batches = FLAGS.max_num_batches
+        else:
+            # This ensures that we make a single pass over all of the data.
+            num_batches = math.ceil(
+                dataset.num_samples / float(FLAGS.batch_size))
+        print(dataset.num_samples)
         if tf.gfile.IsDirectory(FLAGS.checkpoint_path):
             checkpoint_path = tf.train.latest_checkpoint(FLAGS.checkpoint_path)
         else:
             checkpoint_path = FLAGS.checkpoint_path
-       
+
+        tf.logging.info('Evaluating %s' % checkpoint_path)
+
+        reporter = EvalReporter(images, predictions, labels) 
+        # + [tf.Print(labels, [labels], message="Labels", summarize=100)] + [tf.Print(predictions, [predictions], message="Predictions", summarize=100)]
+        eval_ops = [reporter.get_op()] + list(names_to_updates.values())
+
+        # [confusion_matrix, predicts] = slim.evaluation.evaluate_once(
+        #     master=FLAGS.master,
+        #     checkpoint_path=checkpoint_path,
+        #     logdir=FLAGS.eval_dir,
+        #     num_evals=num_batches,
+        #     eval_op=eval_ops,  # list(names_to_updates.values()),
+        #     final_op=[names_to_values['Confusion_matrix'], names_to_values['Predictions']],
+        #     variables_to_restore=variables_to_restore)
         model_variables = 'resnet_v2_50'
         init_fn = slim.assign_from_checkpoint_fn(checkpoint_path, slim.get_model_variables(model_variables))
-        
-        sess = tf.Session()
-        sess.run(tf.initialize_all_variables())
-        # init_fn(sess)
-        # print(sess.run(image_data, feed_dict = {file_name: 'test.jpg'}))
-        # [a] = sess.run([probabilities], feed_dict = {file_name: 'test.jpg'})
-        # print(a)
-            # items = glob.glob('/home/hoangtrunghieu/Medico2018/imdb/Medico_2018_test_set_cls/esophagitis/*.jpg')
-            # for item in items:
-                # image_data = tf.gfile.FastGFile(item, 'rb').read()
-                # image = tf.image.decode_jpeg(image_data, channels=3)
-                # processed_image = image_preprocessing_fn(image, demo_image_size, demo_image_size)
-                # processed_images  = tf.expand_dims(processed_image, 0)
-                # logits, _ = network_fn(processed_images)
-                # probabilities = tf.nn.softmax(logits)
-                # predictions = tf.argmax(logits, 1)
-                # [a] = sess.run([probabilities])
-                # print(a)
-            
-            # network_input, probabilities = sess.run([processed_images, probabilities])
-                                    
-            
-            # probabilities = probabilities[0, 0:]
-            # sorted_inds = [i[0] for i in sorted(enumerate(-probabilities),
-            #                                     key=lambda x:x[1])]
-            
-            # np_image, network_input = sess.run([image,processed_image])
-            # plt.figure()
-            # plt.imshow(np_image[0].astype(np.uint8))
-            # plt.axis('off')
-            # plt.savefig('inp.jpg')
+        n = int(num_batches)
+        with tf.Session() as sess:
+            coord = tf.train.Coordinator()
+            sess.run(tf.global_variables_initializer())
+            init_fn(sess)
+            threads = tf.train.start_queue_runners(sess=sess, coord=coord)
+            all_pred = []
+            all_label = []
+            for _ in range(n):
+                [label, pred] = sess.run([labels, predictions])
+                all_pred += pred.tolist()
+                all_label += label.tolist()
+            coord.request_stop()
+            coord.join(threads)
+        cm = ConfusionMatrix(actual_vector=all_label, predict_vector=all_pred)
+        print(cm.table)
+        print(cm)
+        # print(confusion_matrix)
+        # print(predicts)
+        # reporter.write_html_file("eval.html")
 
-            # plt.figure()
-            # print(np_image.shape)
-            # print(network_input.shape)
-            # plt.imshow( network_input / (network_input.max() - network_input.min()) )
-            # plt.axis('off')
-            # plt.savefig('network-input.jpg')
-            # for i in range(5):
-            #     index = sorted_inds[i]
-            #     print('Probability %0.2f => [%s]' % (probabilities[index], str(index)))
-    
-    # res = slim.get_model_variables()
+
 if __name__ == '__main__':
-    main()
+    tf.app.run()
