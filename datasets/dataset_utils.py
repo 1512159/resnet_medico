@@ -93,7 +93,6 @@ def download_and_uncompress_tarball(tarball_url, dataset_dir):
         filename, float(count * block_size) / float(total_size) * 100.0))
     sys.stdout.flush()
   filepath, _ = urllib.request.urlretrieve(tarball_url, filepath, _progress)
-  print()
   statinfo = os.stat(filepath)
   print('Successfully downloaded', filename, statinfo.st_size, 'bytes.')
   tarfile.open(filepath, 'r:gz').extractall(dataset_dir)

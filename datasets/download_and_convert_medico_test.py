@@ -125,12 +125,11 @@ def _convert_dataset(split_name, filenames, class_names_to_ids, dataset_dir):
   assert split_name in ['test']
 
   num_per_shard = int(math.ceil(len(filenames) / float(_NUM_SHARDS)))
-
+  fo = open(os.path.join(dataset_dir, "test_images.csv"),"w")
   with tf.Graph().as_default():
     image_reader = ImageReader()
 
     with tf.Session('') as sess:
-
       for shard_id in range(_NUM_SHARDS):
         output_filename = _get_dataset_filename(
             dataset_dir, split_name, shard_id)
@@ -139,6 +138,7 @@ def _convert_dataset(split_name, filenames, class_names_to_ids, dataset_dir):
           start_ndx = shard_id * num_per_shard
           end_ndx = min((shard_id+1) * num_per_shard, len(filenames))
           for i in range(start_ndx, end_ndx):
+            fo.write(filenames[i]+'\n')
             sys.stdout.write('\r>> Converting image %d/%d shard %d' % (
                 i+1, len(filenames), shard_id))
             sys.stdout.flush()
@@ -149,11 +149,12 @@ def _convert_dataset(split_name, filenames, class_names_to_ids, dataset_dir):
 
             class_name = os.path.basename(os.path.dirname(filenames[i]))
             class_id = class_names_to_ids[class_name]
-            img_id = os.path.splitext(os.path.basename(filenames[i]))[0]
+            img_id = filenames[i]
+            # img_id = os.path.splitext(os.path.basename(filenames[i]))[0]
             example = dataset_utils.image_to_tfexample(
                 image_data, b'jpg', height, width, class_id, img_id)
             tfrecord_writer.write(example.SerializeToString())
-
+  fo.close()
   sys.stdout.write('\n')
   sys.stdout.flush()
 
@@ -201,9 +202,6 @@ def run(dataset_dir):
   class_names_to_ids = dict(zip(class_names, range(len(class_names))))
 
   test_filenames = photo_filenames
-  fo = open(os.path.join(dataset_dir, "test_images.csv"),"w")
-  for file_name in test_filenames:
-    fo.write(file_name+'\n')
   # # First, convert the training and validation sets.
   _convert_dataset('test', test_filenames, class_names_to_ids,
                    dataset_dir)

@@ -169,7 +169,7 @@ def main(_):
         ######################
         dataset = dataset_factory.get_dataset(
             FLAGS.dataset_name, FLAGS.dataset_split_name, FLAGS.dataset_dir)
-
+        
         ####################
         # Select the model #
         ####################
@@ -186,7 +186,7 @@ def main(_):
             shuffle=False,
             common_queue_capacity=2 * FLAGS.batch_size,
             common_queue_min=FLAGS.batch_size)
-        [image, label] = provider.get(['image', 'label'])
+        [image, label, img_id] = provider.get(['image', 'label', 'img_id'])
         label -= FLAGS.labels_offset
         #####################################
         # Select the preprocessing function #
@@ -200,11 +200,11 @@ def main(_):
 
         image = image_preprocessing_fn(image, eval_image_size, eval_image_size)
 
-        images, labels = tf.train.batch(
-            [image, label],
+        images, labels, img_ids = tf.train.batch(
+            [image, label, img_id],
             batch_size=FLAGS.batch_size,
             num_threads=FLAGS.num_preprocessing_threads,
-            capacity=5 * FLAGS.batch_size)
+            capacity=6 * FLAGS.batch_size)
 
         ####################
         # Define the model #
@@ -280,15 +280,27 @@ def main(_):
             threads = tf.train.start_queue_runners(sess=sess, coord=coord)
             all_pred = []
             all_label = []
+            all_id = []
             for _ in range(n):
-                [label, pred] = sess.run([labels, predictions])
+                [ids, label, pred] = sess.run([img_ids, labels, predictions])
                 all_pred += pred.tolist()
                 all_label += label.tolist()
+                all_id += ids.tolist()
             coord.request_stop()
             coord.join(threads)
+        
+        # Save eval report    
         cm = ConfusionMatrix(actual_vector=all_label, predict_vector=all_pred)
-        print(cm.table)
-        print(cm)
+        with open('resnet50_eval_result.txt',"w") as fo:
+            fo.write(str(cm))
+            fo.close()
+        
+        #Save prediction
+        with open('resnet_pred.csv',"w") as fo:
+            fo.write('label,resnet_pred')
+            for i in xrange(len(all_pred)):
+                fo.write('{:s},{:s},{:s}\n'.format(all_id[i], CLASSES[all_label[i]],CLASSES[all_pred[i]]))
+            fo.close()
         # print(confusion_matrix)
         # print(predicts)
         # reporter.write_html_file("eval.html")

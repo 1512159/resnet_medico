@@ -33,7 +33,8 @@ _FILE_PATTERN = 'medico_%s_*.tfrecord'
 
 # SPLITS_TO_SIZES = {'test': 2338}
 # SPLITS_TO_SIZES = {'test': 2338}
-SPLITS_TO_SIZES = {'test': 400}
+SPLITS_TO_SIZES = {'test': 9405}
+# SPLITS_TO_SIZES = {'test': 49}
 _NUM_CLASSES = 16
 
 _ITEMS_TO_DESCRIPTIONS = {
@@ -75,11 +76,14 @@ def get_split(split_name, dataset_dir, file_pattern=None, reader=None):
       'image/format': tf.FixedLenFeature((), tf.string, default_value='png'),
       'image/class/label': tf.FixedLenFeature(
           [], tf.int64, default_value=tf.zeros([], dtype=tf.int64)),
+      'image/img_id': tf.FixedLenFeature(
+          [], tf.string, default_value=tf.zeros([], dtype=tf.string))
   }
 
   items_to_handlers = {
       'image': slim.tfexample_decoder.Image(),
       'label': slim.tfexample_decoder.Tensor('image/class/label'),
+      'img_id': slim.tfexample_decoder.Tensor('image/img_id')
   }
 
   decoder = slim.tfexample_decoder.TFExampleDecoder(
