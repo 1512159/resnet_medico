@@ -63,7 +63,8 @@ _CLASS_NAMES = [
   'instruments',
   'normal-z-line',
   'polyps',
-  'stool-inclusions'
+  'stool-inclusions',
+  'out-of-patient'
 ]
 class ImageReader(object):
   """Helper class that provides TensorFlow image coding utilities."""

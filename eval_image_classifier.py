@@ -253,7 +253,7 @@ def main(_):
             final_op=[names_to_values['Confusion_matrix']],
             variables_to_restore=variables_to_restore)
 
-        # print(confusion_matrix)
+        print(confusion_matrix)
         # print(predicts)
         reporter.write_html_file("eval.html")
 

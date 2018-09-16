@@ -24,7 +24,7 @@ import tensorflow as tf
 from datasets import dataset_factory
 from nets import nets_factory
 from preprocessing import preprocessing_factory
-from eval_reporter import EvalReporter
+from my_reporter import EvalReporter
 from pycm import *
 
 slim = tf.contrib.slim
@@ -39,6 +39,7 @@ CLASSES = [
     'normal-cecum',
     'normal-pylorus',
     'normal-z-line',
+    'out-of-patient',
     'polyps',
     'retroflex-rectum',
     'retroflex-stomach',
@@ -143,16 +144,16 @@ def _get_streaming_metrics(prediction, label, num_classes):
 
     return confusion, confusion_update
 
-def _get_pred_result(prediction):
-    with tf.name_scope("eval"):
-        predict = _create_local('my_predict',
-                                  shape=[100],
-                                  dtype=tf.int64)
-        # Create the update op for doing a "+=" accumulation on the batch
-        predict_update = predict.assign(prediction)
-        # predict_update = predict.assign(tf.concat(0,[v1, v2]))
+# def _get_pred_result(prediction):
+#     with tf.name_scope("eval"):
+#         predict = _create_local('my_predict',
+#                                   shape=[100],
+#                                   dtype=tf.int64)
+#         # Create the update op for doing a "+=" accumulation on the batch
+#         predict_update = predict.assign(prediction)
+#         # predict_update = predict.assign(tf.concat(0,[v1, v2]))
 
-    return predict, predict_update
+#     return predict, predict_update
 
 
 def main(_):
@@ -219,9 +220,13 @@ def main(_):
             variables_to_restore[tf_global_step.op.name] = tf_global_step
         else:
             variables_to_restore = slim.get_variables_to_restore()
-
+        
         predictions = tf.argmax(logits, 1)
+        probabilities = tf.nn.softmax(logits)
+        scores = tf.maximum(probabilities,1)
         labels = tf.squeeze(labels)
+
+        # result = tf.cond(tf.greater(probabilities[5], tf.constant(0.001)), lambda: tf.constant(1), lambda:tf.constant(2))
 
         # Define the metrics:
         names_to_values, names_to_updates = slim.metrics.aggregate_metric_map({
@@ -229,8 +234,7 @@ def main(_):
             'Recall_5': slim.metrics.streaming_recall_at_k(
                 logits, labels, 8),
             'Confusion_matrix': _get_streaming_metrics(labels, predictions,
-                                                       dataset.num_classes - FLAGS.labels_offset),
-            'Predictions': _get_pred_result(predictions)
+                                                       dataset.num_classes - FLAGS.labels_offset)
         })
 
         # Print the summaries to screen.
@@ -250,7 +254,8 @@ def main(_):
             # This ensures that we make a single pass over all of the data.
             num_batches = math.ceil(
                 dataset.num_samples / float(FLAGS.batch_size))
-        print(dataset.num_samples)
+       
+        print('Total samples: ', dataset.num_samples)
         if tf.gfile.IsDirectory(FLAGS.checkpoint_path):
             checkpoint_path = tf.train.latest_checkpoint(FLAGS.checkpoint_path)
         else:
@@ -258,19 +263,10 @@ def main(_):
 
         tf.logging.info('Evaluating %s' % checkpoint_path)
 
-        reporter = EvalReporter(images, predictions, labels) 
-        # + [tf.Print(labels, [labels], message="Labels", summarize=100)] + [tf.Print(predictions, [predictions], message="Predictions", summarize=100)]
-        eval_ops = [reporter.get_op()] + list(names_to_updates.values())
+        reporter = EvalReporter(img_ids, images, predictions, labels, probabilities) 
+        reporter_op = reporter.get_op()
 
-        # [confusion_matrix, predicts] = slim.evaluation.evaluate_once(
-        #     master=FLAGS.master,
-        #     checkpoint_path=checkpoint_path,
-        #     logdir=FLAGS.eval_dir,
-        #     num_evals=num_batches,
-        #     eval_op=eval_ops,  # list(names_to_updates.values()),
-        #     final_op=[names_to_values['Confusion_matrix'], names_to_values['Predictions']],
-        #     variables_to_restore=variables_to_restore)
-        model_variables = 'resnet_v2_50'
+        model_variables = FLAGS.model_name
         init_fn = slim.assign_from_checkpoint_fn(checkpoint_path, slim.get_model_variables(model_variables))
         n = int(num_batches)
         with tf.Session() as sess:
@@ -280,30 +276,47 @@ def main(_):
             threads = tf.train.start_queue_runners(sess=sess, coord=coord)
             all_pred = []
             all_label = []
+            all_score = []
             all_id = []
             for _ in range(n):
-                [ids, label, pred] = sess.run([img_ids, labels, predictions])
+                print('Predicting ' + str(_+1) + '/'+str(n))
+                [ids, label, pred, score, _] = sess.run([img_ids, labels, predictions, probabilities, reporter_op ])
                 all_pred += pred.tolist()
                 all_label += label.tolist()
                 all_id += ids.tolist()
+                all_score += score.tolist()
             coord.request_stop()
             coord.join(threads)
         
+        # Set all image with instrument score > 0.001
+        # for i in range(len(all_score)):
+        #     if float(all_score[i][5]) >= 0.001 and all_pred[i] in [2,3,10]:
+        #         all_pred[i] = 5
+
         # Save eval report    
         cm = ConfusionMatrix(actual_vector=all_label, predict_vector=all_pred)
-        with open('resnet50_eval_result.txt',"w") as fo:
+        with open(FLAGS.model_name + '_eval_result.txt',"w") as fo:
             fo.write(str(cm))
             fo.close()
         
+        CHECK = set()
         #Save prediction
-        with open('resnet_pred.csv',"w") as fo:
-            fo.write('label,resnet_pred')
+        with open(FLAGS.model_name + '_pred.csv',"w") as fo:
+            fo.write('img_id,label,resnet_pred,resnet_score\n')
             for i in xrange(len(all_pred)):
-                fo.write('{:s},{:s},{:s}\n'.format(all_id[i], CLASSES[all_label[i]],CLASSES[all_pred[i]]))
+                # if all_id[i] not in CHECK:
+                    fo.write('{:s},{:s},{:s},{:s},{:s}\n'.format(all_id[i], 
+                                                            CLASSES[all_label[i]],
+                                                            CLASSES[all_pred[i]],
+                                                            str(max(all_score[i])),
+                                                            str(all_score[i]).replace('[','').replace(']','')
+                                                            ))
+                    # CHECK.add(all_id[i])
             fo.close()
         # print(confusion_matrix)
         # print(predicts)
-        # reporter.write_html_file("eval.html")
+        reporter.write_html_file(FLAGS.model_name + "_visualization.html")
+
 
 
 if __name__ == '__main__':

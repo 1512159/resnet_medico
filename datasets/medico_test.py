@@ -33,8 +33,8 @@ _FILE_PATTERN = 'medico_%s_*.tfrecord'
 
 # SPLITS_TO_SIZES = {'test': 2338}
 # SPLITS_TO_SIZES = {'test': 2338}
-SPLITS_TO_SIZES = {'test': 9405}
-# SPLITS_TO_SIZES = {'test': 49}
+SPLITS_TO_SIZES = {'test': 8761}
+# SPLITS_TO_SIZES = {'test': 100}
 _NUM_CLASSES = 16
 
 _ITEMS_TO_DESCRIPTIONS = {
