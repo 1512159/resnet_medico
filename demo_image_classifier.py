@@ -281,20 +281,34 @@ def main(_):
             for _ in range(n):
                 print('Predicting ' + str(_+1) + '/'+str(n))
                 [ids, label, pred, score, _] = sess.run([img_ids, labels, predictions, probabilities, reporter_op ])
-                all_pred += pred.tolist()
-                all_label += label.tolist()
-                all_id += ids.tolist()
-                all_score += score.tolist()
+                #np array to list
+                pred  = pred.tolist()
+                label = label.tolist()
+                id    = ids.tolist()
+                score = score.tolist()
+
+                #if instruments have score in top 3 and greater than 0.1 -> pred instruments
+                for i in range(len(pred)):
+                    if pred[i] in [2,3,10,6]:
+                        dict_scores = {}
+                        for j, scr in enumerate(score[i]):
+                            dict_scores[j] = scr
+                        sorted_d = sorted(dict_scores.items(), key=lambda x: x[1], reverse = True)
+                        if ((sorted_d[1][0] == 5) and (sorted_d[1][1]>0.1)) or ((sorted_d[2][0] == 5) and (sorted_d[2][1]>0.1)) or ((sorted_d[3][0] == 5) and (sorted_d[3][1]>0.1) ):
+                            pred[i] = 5
+                
+                #add to one big list
+                all_pred += pred
+                all_label+= label
+                all_id   += id
+                all_score+= score
             coord.request_stop()
             coord.join(threads)
         
         # Set all image with instrument score > 0.001
-        # for i in range(len(all_score)):
-        #     if float(all_score[i][5]) >= 0.001 and all_pred[i] in [2,3,10]:
-        #         all_pred[i] = 5
-
         # Save eval report    
         cm = ConfusionMatrix(actual_vector=all_label, predict_vector=all_pred)
+        print(str(cm).split('\n')[43])
         with open(FLAGS.model_name + '_eval_result.txt',"w") as fo:
             fo.write(str(cm))
             fo.close()

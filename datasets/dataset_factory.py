@@ -24,6 +24,7 @@ from datasets import imagenet
 from datasets import mnist
 from datasets import medico
 from datasets import medico_test
+from datasets import medico_kvasir_v2
 
 datasets_map = {
     'cifar10': cifar10,
@@ -31,7 +32,8 @@ datasets_map = {
     'imagenet': imagenet,
     'mnist': mnist,
     'medico': medico,
-    'medico_test': medico_test
+    'medico_test': medico_test,
+    'medico_kvasir_v2': medico_kvasir_v2
 }
 
 

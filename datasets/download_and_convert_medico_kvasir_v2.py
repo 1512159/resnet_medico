@@ -31,22 +31,14 @@ import math
 import os
 import random
 import sys
-import glob
+
 import tensorflow as tf
 
 from datasets import dataset_utils
-
-# The URL where the Flowers data can be downloaded.
-_DATA_URL = ''
-
-# The number of images in the validation set.
-_SPLIT_VALIDATION = 0
-
 # Seed for repeatability.
-_RANDOM_SEED = 0
 
 # The number of shards per dataset split.
-_NUM_SHARDS = 15 #8
+_NUM_SHARDS = 10
 
 _CLASS_NAMES = [
   'colon-clear',
@@ -98,18 +90,13 @@ def _get_filenames_and_classes(dataset_dir):
     subdirectories, representing class names.
   """
   medico_root = dataset_dir
-  sub_folder = ['main', 'extra']
   directories = []
   class_names = []
   for filename in _CLASS_NAMES:
-    class_names.append(filename)
-    for folder in sub_folder:
-      path = os.path.join(medico_root, folder, filename)
-      print(os.path.isdir(path))
-      if os.path.isdir(path):
-        print(path)
-        directories.append(path)
-      
+    path = os.path.join(medico_root, filename)
+    if os.path.isdir(path):
+      directories.append(path)
+      class_names.append(filename)
 
   photo_filenames = []
   for directory in directories:
@@ -136,15 +123,14 @@ def _convert_dataset(split_name, filenames, class_names_to_ids, dataset_dir):
       (integers).
     dataset_dir: The directory where the converted datasets are stored.
   """
-  assert split_name in ['train', 'validation']
+  assert split_name in ['test']
 
   num_per_shard = int(math.ceil(len(filenames) / float(_NUM_SHARDS)))
-
+  fo = open(os.path.join(dataset_dir, "test_images.csv"),"w")
   with tf.Graph().as_default():
     image_reader = ImageReader()
 
     with tf.Session('') as sess:
-
       for shard_id in range(_NUM_SHARDS):
         output_filename = _get_dataset_filename(
             dataset_dir, split_name, shard_id)
@@ -153,6 +139,7 @@ def _convert_dataset(split_name, filenames, class_names_to_ids, dataset_dir):
           start_ndx = shard_id * num_per_shard
           end_ndx = min((shard_id+1) * num_per_shard, len(filenames))
           for i in range(start_ndx, end_ndx):
+            fo.write(filenames[i]+'\n')
             sys.stdout.write('\r>> Converting image %d/%d shard %d' % (
                 i+1, len(filenames), shard_id))
             sys.stdout.flush()
@@ -163,11 +150,12 @@ def _convert_dataset(split_name, filenames, class_names_to_ids, dataset_dir):
 
             class_name = os.path.basename(os.path.dirname(filenames[i]))
             class_id = class_names_to_ids[class_name]
-
+            img_id = filenames[i]
+            # img_id = os.path.splitext(os.path.basename(filenames[i]))[0]
             example = dataset_utils.image_to_tfexample(
-                image_data, b'jpg', height, width, class_id)
+                image_data, b'jpg', height, width, class_id, img_id)
             tfrecord_writer.write(example.SerializeToString())
-
+  fo.close()
   sys.stdout.write('\n')
   sys.stdout.flush()
 
@@ -187,7 +175,7 @@ def _clean_up_temporary_files(dataset_dir):
 
 
 def _dataset_exists(dataset_dir):
-  for split_name in ['train', 'validation']:
+  for split_name in ['test']:
     for shard_id in range(_NUM_SHARDS):
       output_filename = _get_dataset_filename(
           dataset_dir, split_name, shard_id)
@@ -205,29 +193,19 @@ def run(dataset_dir):
   print(dataset_dir)
   if not tf.gfile.Exists(dataset_dir):
     tf.gfile.MakeDirs(dataset_dir)
-
+  print('Medico challenge - test dataset')
   if _dataset_exists(dataset_dir):
     print('Dataset files already exist. Exiting without re-creating them.')
     return
 
   # dataset_utils.download_and_uncompress_tarball(_DATA_URL, dataset_dir)
-  photo_filenames, class_names = _get_filenames_and_classes('/home/hoangtrunghieu/Medico2018/imdb/Medico_2018_development_set')
-  # photo_filenames, class_names = _get_filenames_and_classes('/home/hoangtrunghieu/Medico2018/imdb/medico_full/images/kvasir-dataset-v2')
+  photo_filenames, class_names = _get_filenames_and_classes('/home/hoangtrunghieu/Medico2018/imdb/Kvasir_v2')
   class_names_to_ids = dict(zip(class_names, range(len(class_names))))
 
-  # # Divide into train and test:
-  random.seed(_RANDOM_SEED)
-  random.shuffle(photo_filenames)
-  _NUM_VALIDATION = int(len(photo_filenames) * _SPLIT_VALIDATION)
-  training_filenames = photo_filenames[_NUM_VALIDATION:]
-  validation_filenames = photo_filenames[:_NUM_VALIDATION]
-  print(class_names)
+  test_filenames = photo_filenames
   # # First, convert the training and validation sets.
-  _convert_dataset('train', training_filenames, class_names_to_ids,
+  _convert_dataset('test', test_filenames, class_names_to_ids,
                    dataset_dir)
-  _convert_dataset('validation', validation_filenames, class_names_to_ids,
-                   dataset_dir)
-
   # # Finally, write the labels file:
   labels_to_class_names = dict(zip(range(len(class_names)), class_names))
   dataset_utils.write_label_file(labels_to_class_names, dataset_dir)

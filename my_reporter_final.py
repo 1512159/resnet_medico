@@ -22,6 +22,7 @@ import tensorflow as tf
 from PIL import Image, ImageDraw, ImageFont
 from jinja2 import Template
 import os
+import cv2
 CLASSES = (
     'nothing',
     'colon',
@@ -52,23 +53,25 @@ class EvalReporter(object):
     op                = None        # `py_func` layer which dumps images
 
 
-    def __init__(self, img_ids=[], images=[], predicted=[], expected=[], prob=[]):
-        """ constructor for the evaluation reporter.
-            TODO: The lengths of the incoming tensors must match!
-        """
-        self.clear()
-        self.op = tf.py_func(self._pyfunc, [img_ids, images, predicted, expected, prob], tf.float32)
+    
 
-
-    def _pyfunc(self, img_ids, images, predicted, expected, prob):
+    def __init__(self, images, predicted, expected, prob):
         """ _pyfunc is the python_func's "op" which will accept a list of the
             images, predicted classes and the expectations.  These at this point
             are NOT tensors, but are `numpy.ndarray`'s.
         """
         total = 0
         error = 0
+        self.success_histogram = {}
+        self.failure_histogram = {}
         for i in range(len(images)):
-            im = scipy.misc.toimage(images[i])              # ndarray -> PIL.Image
+            if (i%1000 == 0):
+                print(i)
+            if expected[i] == predicted[i] :
+                continue
+            im_np = Image.open(images[i])
+            im_np = im_np.resize((224,224), Image.ANTIALIAS)
+            im = scipy.misc.toimage(im_np)              # ndarray -> PIL.Image
             #calculate prob dict
             prob_dict = {}
             prob_list = prob[i]
@@ -80,7 +83,7 @@ class EvalReporter(object):
             fnt =ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 18, encoding="unic")
             # d.rectangle(((0,0),(200,150)), fill = "white")
             sorted_d = sorted(prob_dict.items(), key=lambda x: x[1], reverse = True)
-            d.text((20, 0), os.path.basename(img_ids[i]), font=fnt, fill=(255,255,255,255))
+            d.text((20, 0), os.path.basename(images[i]), font=fnt, fill=(255,255,255,255))
             for k, item in enumerate(sorted_d[:7]):
                 d.text((20, 20 + k * 20), '{:<12}:{:.3f}'.format(str(item[0]), float(item[1])), font=fnt, fill=(0,255,0,255))
             
@@ -88,29 +91,28 @@ class EvalReporter(object):
             im.save(bs, format="JPEG")                      # PIL.Image -> JPEG
             b64s = base64.b64encode(bs.getvalue())          # JPEG -> Base64
             total += 1
-
-            if predicted[i] in [2,3,10,6]:
-                dict_scores = {}
-                for j, scr in enumerate(prob[i]):
-                    dict_scores[j] = scr
-                sorted_d = sorted(dict_scores.items(), key=lambda x: x[1], reverse = True)
-                if ((sorted_d[1][0] == 5) and (sorted_d[1][1]>0.1)) or ((sorted_d[2][0] == 5) and (sorted_d[2][1]>0.1)) or ((sorted_d[3][0] == 5) and (sorted_d[3][1]>0.1) ):
-                    predicted[i] = 5
             
-            if CLASSES[expected[i]] == CLASSES[predicted[i]]:
-                if CLASSES[predicted[i]] in self.success_histogram:
-                    self.success_histogram[CLASSES[predicted[i]]].append((b64s, prob_dict))
+            # print(expected[i], predicted[i])
+            if expected[i] != predicted[i] :
+            #     if predicted[i] in self.success_histogram:
+            #         self.success_histogram[predicted[i]].append((b64s, prob_dict))
+            #     else:
+            #         self.success_histogram[predicted[i]] = [(b64s, prob_dict)]
+            # else:
+            #     error += 1
+                if predicted[i] in self.failure_histogram:
+                    self.failure_histogram[predicted[i]].append([b64s, expected[i], prob_dict])
                 else:
-                    self.success_histogram[CLASSES[predicted[i]]] = [(b64s, prob_dict)]
-            else:
-                error += 1
-                if CLASSES[predicted[i]] in self.failure_histogram:
-                    self.failure_histogram[CLASSES[predicted[i]]].append([b64s, CLASSES[expected[i]], prob_dict])
-                else:
-                    self.failure_histogram[CLASSES[predicted[i]]] = [[b64s, CLASSES[expected[i]], prob_dict]]
+                    self.failure_histogram[predicted[i]] = [[b64s, expected[i], prob_dict]]
 
-        return np.float32(((total - error)/total) if total > 0 else 0)
+        #return np.float32(((total - error)/total) if total > 0 else 0)
 
+    # def __init__(self, img_ids=[], predicted=[], expected=[], prob=[]):
+    #     """ constructor for the evaluation reporter.
+    #         TODO: The lengths of the incoming tensors must match!
+    #     """
+    #     pyfunc(self, img_ids, predicted, expected, prob)
+    #     self.images
 
     def get_op(self):
         """ get_op returns the tensorflow wrapped `py_func` which will convert the local
